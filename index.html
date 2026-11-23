@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Video Player</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { height: 100vh; overflow: hidden; background: #000; font-family: Arial, sans-serif; }
+        .video-container { position: relative; width: 100vw; height: 100vh; }
+
+        /* Two stacked videos for smooth switching */
+        video.video-layer {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100vw; height: 100vh;
+            object-fit: cover;
+            background: #000;
+            will-change: opacity;
+        }
+
+        /* buffer (background) is under main (visible) */
+        #mainVideo { z-index: 5; opacity: 1; }
+        #bufferVideo { z-index: 4; opacity: 0; pointer-events: none; }
+
+        .controls {
+            position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 10;
+            display: grid; grid-template-rows: 1fr 1fr;
+        }
+        .control-top { grid-row: 1; display: flex; width: 100%; }
+        .control-bottom { grid-row: 2; display: flex; width: 100%; }
+
+        .control-btn {
+            background: transparent; border: none; cursor: pointer; touch-action: manipulation;
+            user-select: none; -webkit-tap-highlight-color: transparent; flex: 1; position: relative; overflow: hidden;
+            outline: none; box-shadow: none;
+        }
+        .control-btn:active, .control-btn:focus, .control-btn:hover { background: transparent !important; outline: none !important; box-shadow: none !important; }
+
+        /* Keep accessible names but hide visually */
+        .visually-hidden { position: absolute !important; height: 1px; width: 1px; overflow: hidden; clip: rect(1px, 1px, 1px, 1px); white-space: nowrap; }
+
+        #loadingScreen {
+            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: #fff; z-index: 9999;
+            display: flex; align-items: center; justify-content: center;
+        }
+        #loadingScreen.hidden { display: none; }
+        .loader {
+            width: 50px; height: 50px; border: 5px solid #e0e0e0; border-top: 5px solid #2196F3;
+            border-radius: 50%; animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+    <div id="loadingScreen">
+        <div class="loader"></div>
+    </div>
+
+    <div class="video-container">
+        <video id="smileVideo" class="video-layer" muted playsinline preload="auto" webkit-playsinline src="smile.mp4" style="opacity: 0;"></video>
+        <video id="leftVideo" class="video-layer" muted playsinline preload="auto" webkit-playsinline src="left.mp4" style="opacity: 0;"></video>
+        <video id="rightVideo" class="video-layer" muted playsinline preload="auto" webkit-playsinline src="right.mp4" style="opacity: 0;"></video>
+
+        <div class="controls">
+            <div class="control-top">
+                <button class="control-btn" id="smileBtn" aria-label="smile"></button>
+            </div>
+            <div class="control-bottom">
+                <button class="control-btn" id="leftBtn" aria-label="left"></button>
+                <button class="control-btn" id="rightBtn" aria-label="right"></button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Elements
+        const smileVideo = document.getElementById('smileVideo');
+        const leftVideo = document.getElementById('leftVideo');
+        const rightVideo = document.getElementById('rightVideo');
+        const smileBtn = document.getElementById('smileBtn');
+        const leftBtn = document.getElementById('leftBtn');
+        const rightBtn = document.getElementById('rightBtn');
+
+        const videos = { smile: smileVideo, left: leftVideo, right: rightVideo };
+        let currentVideo = null;
+
+        // Play selected video
+        function playVideo(videoType) {
+            const selectedVideo = videos[videoType];
+
+            if (currentVideo === selectedVideo) {
+                selectedVideo.currentTime = 0;
+                selectedVideo.play().catch(err => console.warn('Play failed:', err));
+                return;
+            }
+
+            if (currentVideo) {
+                currentVideo.pause();
+                currentVideo.currentTime = 0;
+                currentVideo.style.opacity = '0';
+            }
+
+            selectedVideo.currentTime = 0;
+            selectedVideo.style.opacity = '1';
+            selectedVideo.play().catch(err => console.warn('Play failed:', err));
+            currentVideo = selectedVideo;
+        }
+
+        // Button wiring
+        function addButtonListener(button, videoType) {
+            const handler = (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                playVideo(videoType);
+            };
+            button.addEventListener('click', handler);
+            button.addEventListener('touchend', handler);
+        }
+
+        addButtonListener(smileBtn, 'smile');
+        addButtonListener(leftBtn, 'left');
+        addButtonListener(rightBtn, 'right');
+
+        // Prevent gestures that might interfere
+        videoPreventInteractions();
+
+        function videoPreventInteractions() {
+            [smileVideo, leftVideo, rightVideo].forEach(v => {
+                v.addEventListener('touchstart', (e) => e.preventDefault());
+                v.addEventListener('click', (e) => e.preventDefault());
+            });
+
+            document.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
+            document.addEventListener('gesturestart', (e) => e.preventDefault());
+
+            let lastTouchEnd = 0;
+            document.addEventListener('touchend', function (event) {
+                const now = (new Date()).getTime();
+                if (now - lastTouchEnd <= 300) { event.preventDefault(); }
+                lastTouchEnd = now;
+            }, false);
+        }
+
+        // Initial adjust
+        function adjustVideoSize() {
+            [smileVideo, leftVideo, rightVideo].forEach(v => {
+                v.style.width = '100vw';
+                v.style.height = '100vh';
+            });
+        }
+        window.addEventListener('orientationchange', () => setTimeout(adjustVideoSize, 100));
+        window.addEventListener('resize', adjustVideoSize);
+        window.addEventListener('load', () => { adjustVideoSize(); setTimeout(adjustVideoSize, 500); });
+        document.addEventListener('visibilitychange', () => { if (!document.hidden) setTimeout(adjustVideoSize, 100); });
+
+        // Preload all videos before hiding loading screen
+        (function preloadVideos() {
+            const loadingScreen = document.getElementById('loadingScreen');
+            const allVideos = [smileVideo, leftVideo, rightVideo];
+            let loadedCount = 0;
+
+            function checkAllLoaded() {
+                loadedCount++;
+                if (loadedCount === allVideos.length) {
+                    loadingScreen.classList.add('hidden');
+                }
+            }
+
+            allVideos.forEach(video => {
+                video.addEventListener('canplaythrough', checkAllLoaded, { once: true });
+                video.addEventListener('error', checkAllLoaded, { once: true });
+                video.load();
+            });
+        })();
+    </script>
+</body>
+</html>
